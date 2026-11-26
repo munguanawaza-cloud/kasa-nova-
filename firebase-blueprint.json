@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "Kolwezi CRM customer with GPS coordinates, acquisition source, and loyalty points",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "localId": { "type": "integer" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "gpsLat": { "type": "number" },
+        "gpsLng": { "type": "number" },
+        "source": { "type": "string", "enum": ["Facebook", "TikTok", "WhatsApp", "Referral"] },
+        "loyaltyPoints": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "localId", "name", "phone", "address", "gpsLat", "gpsLng", "source", "loyaltyPoints", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product with separated USD and CDF pricing",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "localId": { "type": "integer" },
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["Cuisine", "Beauté", "Maison"] },
+        "costUsd": { "type": "number" },
+        "costCdf": { "type": "number" },
+        "priceUsd": { "type": "number" },
+        "priceCdf": { "type": "number" },
+        "stockQuantity": { "type": "integer" },
+        "videoUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "localId", "name", "category", "costUsd", "costCdf", "priceUsd", "priceCdf", "stockQuantity", "createdAt", "updatedAt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Cash or installment sale strictly in USD or CDF with source, signature, due date, and giveaway tracker",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "localId": { "type": "integer" },
+        "customerId": { "type": "integer" },
+        "productId": { "type": "integer" },
+        "customerName": { "type": "string" },
+        "productName": { "type": "string" },
+        "customerSource": { "type": "string", "enum": ["Facebook", "TikTok", "WhatsApp", "Referral"] },
+        "type": { "type": "string", "enum": ["CASH", "INSTALLMENT"] },
+        "quantity": { "type": "integer" },
+        "totalPrice": { "type": "number" },
+        "profitAmount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "CDF"] },
+        "paidAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "dueDate": { "type": "integer" },
+        "signaturePath": { "type": "string" },
+        "isGiveawayEntry": { "type": "boolean" },
+        "dayKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "localId", "customerId", "productId", "customerName", "productName", "customerSource", "type", "quantity", "totalPrice", "profitAmount", "currency", "paidAmount", "remainingAmount", "dueDate", "signaturePath", "isGiveawayEntry", "dayKey", "createdAt", "updatedAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Installment or cash collection entry strictly in USD or CDF with optional early-bird discount",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "localId": { "type": "integer" },
+        "saleId": { "type": "integer" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "discountApplied": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "CDF"] },
+        "dayKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "localId", "saleId", "customerName", "amount", "discountApplied", "currency", "dayKey", "createdAt", "updatedAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Daily operational expense strictly in USD or CDF",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "localId": { "type": "integer" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "CDF"] },
+        "dayKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "localId", "title", "amount", "currency", "dayKey", "createdAt", "updatedAt"]
+    },
+    "CashDrop": {
+      "title": "CashDrop",
+      "description": "Safe Box cash drop initiated by Agent with 4-digit OTP confirmed by Owner",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "CDF"] },
+        "otp": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED"] },
+        "agentName": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "confirmedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "currency", "otp", "status", "agentName", "note", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Real-time internal chat message between Owner and Agent",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["OWNER", "AGENT"] },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "senderRole", "senderName", "text", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Synced CRM customers"
+    },
+    "/users/{userId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Synced inventory products"
+    },
+    "/users/{userId}/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Synced cash and installment sales"
+    },
+    "/users/{userId}/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Synced payment collections"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/Expense" },
+      "description": "Synced daily expenses"
+    },
+    "/users/{userId}/cash_drops/{dropId}": {
+      "schema": { "$ref": "#/entities/CashDrop" },
+      "description": "Safe Box cash drops awaiting or completed with OTP"
+    },
+    "/users/{userId}/chat_messages/{msgId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Real-time Owner and Agent chat messages"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Kasa Nova</string>
+    <string name="brand_subtitle">HAMADA GROUP · KOLWEZI OS</string>
+    <string name="sign_in_headline">KASA NOVA OS</string>
+    <string name="sign_in_subtitle">Dual-Ledger Command (USD / CDF) · Kolwezi Field Routes · KASA AI</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="nav_ledgers">Ledgers</string>
+    <string name="nav_map">Routes Map</string>
+    <string name="nav_stock">Stock</string>
+    <string name="nav_ai">KASA AI</string>
+    <string name="daily_target_title">Daily Net Profit Target</string>
+    <string name="daily_target_value">50.00 USD</string>
+    <string name="strict_rule_badge">USD &amp; CDF Strictly Separated · Promises Excluded</string>
+    <string name="load_kolwezi_starter">Load Kolwezi Sample Workspace</string>
+    <string name="ai_readonly_notice">KASA AI is strictly read-only: analysis &amp; FR/AR drafts only (cannot alter balances or contracts).</string>
+</resources>

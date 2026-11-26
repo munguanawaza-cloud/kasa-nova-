@@ -1,0 +1,6 @@
+{
+  "name": "Kasa Nova",
+  "description": "Kasa Nova OS business operations, separated USD/CDF ledgers, Google Maps collection routes, and KASA AI advisor for Hamada Group in Kolwezi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

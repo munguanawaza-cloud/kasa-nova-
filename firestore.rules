@@ -1,0 +1,239 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidCurrency(currency) {
+      return currency in ['USD', 'CDF'];
+    }
+
+    function isValidSource(source) {
+      return source in ['Facebook', 'TikTok', 'WhatsApp', 'Referral'];
+    }
+
+    function isValidCategory(category) {
+      return category in ['Cuisine', 'Beauté', 'Maison'];
+    }
+
+    function isValidCustomer(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.localId is int && data.localId >= 0 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.phone is string && data.phone.size() <= 40 &&
+             data.address is string && data.address.size() <= 200 &&
+             data.gpsLat is number && data.gpsLat >= -90 && data.gpsLat <= 90 &&
+             data.gpsLng is number && data.gpsLng >= -180 && data.gpsLng <= 180 &&
+             isValidSource(data.source) &&
+             data.loyaltyPoints is int && data.loyaltyPoints >= 0 && data.loyaltyPoints <= 10000000;
+    }
+
+    function isValidProduct(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.localId is int && data.localId >= 0 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             isValidCategory(data.category) &&
+             data.costUsd is number && data.costUsd >= 0 && data.costUsd <= 1000000000 &&
+             data.costCdf is number && data.costCdf >= 0 && data.costCdf <= 1000000000 &&
+             data.priceUsd is number && data.priceUsd >= 0 && data.priceUsd <= 1000000000 &&
+             data.priceCdf is number && data.priceCdf >= 0 && data.priceCdf <= 1000000000 &&
+             data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000 &&
+             (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 500));
+    }
+
+    function isValidSale(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.localId is int && data.localId >= 0 &&
+             data.customerId is int && data.customerId >= 0 &&
+             data.productId is int && data.productId >= 0 &&
+             data.customerName is string && data.customerName.size() <= 120 &&
+             data.productName is string && data.productName.size() <= 120 &&
+             isValidSource(data.customerSource) &&
+             data.type in ['CASH', 'INSTALLMENT'] &&
+             data.quantity is int && data.quantity >= 1 && data.quantity <= 100000 &&
+             data.totalPrice is number && data.totalPrice >= 0 && data.totalPrice <= 1000000000 &&
+             data.profitAmount is number && data.profitAmount >= 0 && data.profitAmount <= 1000000000 &&
+             isValidCurrency(data.currency) &&
+             data.paidAmount is number && data.paidAmount >= 0 && data.paidAmount <= 1000000000 &&
+             data.remainingAmount is number && data.remainingAmount >= 0 && data.remainingAmount <= 1000000000 &&
+             data.dueDate is int && data.dueDate >= 0 &&
+             data.signaturePath is string && data.signaturePath.size() <= 500 &&
+             data.isGiveawayEntry is bool &&
+             data.dayKey is string && data.dayKey.size() == 10;
+    }
+
+    function isValidPayment(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.localId is int && data.localId >= 0 &&
+             data.saleId is int && data.saleId >= 0 &&
+             data.customerName is string && data.customerName.size() <= 120 &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             data.discountApplied is number && data.discountApplied >= 0 && data.discountApplied <= 1000000000 &&
+             isValidCurrency(data.currency) &&
+             data.dayKey is string && data.dayKey.size() == 10;
+    }
+
+    function isValidExpense(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.localId is int && data.localId >= 0 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             isValidCurrency(data.currency) &&
+             data.dayKey is string && data.dayKey.size() == 10;
+    }
+
+    function isValidCashDrop(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             isValidCurrency(data.currency) &&
+             data.otp is string && data.otp.matches('^[0-9]{4}$') &&
+             data.status in ['PENDING', 'COMPLETED'] &&
+             data.agentName is string && data.agentName.size() >= 1 && data.agentName.size() <= 80 &&
+             data.note is string && data.note.size() <= 200;
+    }
+
+    function isValidChatMessage(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.senderRole in ['OWNER', 'AGENT'] &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80 &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 1000;
+    }
+
+    match /users/{userId}/customers/{customerId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(customerId);
+      allow create: if isOwner(userId) && isValidId(customerId) &&
+                       incoming().keys().hasAll(['userId', 'localId', 'name', 'phone', 'address', 'gpsLat', 'gpsLng', 'source', 'loyaltyPoints', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'localId', 'name', 'phone', 'address', 'gpsLat', 'gpsLng', 'source', 'loyaltyPoints', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidCustomer(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(customerId) &&
+                       isValidCustomer(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'address', 'gpsLat', 'gpsLng', 'source', 'loyaltyPoints', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(customerId);
+    }
+
+    match /users/{userId}/products/{productId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(productId);
+      allow create: if isOwner(userId) && isValidId(productId) &&
+                       incoming().keys().hasAll(['userId', 'localId', 'name', 'category', 'costUsd', 'costCdf', 'priceUsd', 'priceCdf', 'stockQuantity', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'localId', 'name', 'category', 'costUsd', 'costCdf', 'priceUsd', 'priceCdf', 'stockQuantity', 'videoUrl', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidProduct(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(productId) &&
+                       isValidProduct(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'costUsd', 'costCdf', 'priceUsd', 'priceCdf', 'stockQuantity', 'videoUrl', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(productId);
+    }
+
+    match /users/{userId}/sales/{saleId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(saleId);
+      allow create: if isOwner(userId) && isValidId(saleId) &&
+                       incoming().keys().hasAll(['userId', 'localId', 'customerId', 'productId', 'customerName', 'productName', 'customerSource', 'type', 'quantity', 'totalPrice', 'profitAmount', 'currency', 'paidAmount', 'remainingAmount', 'dueDate', 'signaturePath', 'isGiveawayEntry', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'localId', 'customerId', 'productId', 'customerName', 'productName', 'customerSource', 'type', 'quantity', 'totalPrice', 'profitAmount', 'currency', 'paidAmount', 'remainingAmount', 'dueDate', 'signaturePath', 'isGiveawayEntry', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidSale(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(saleId) &&
+                       isValidSale(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['paidAmount', 'remainingAmount', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(saleId);
+    }
+
+    match /users/{userId}/payments/{paymentId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(paymentId);
+      allow create: if isOwner(userId) && isValidId(paymentId) &&
+                       incoming().keys().hasAll(['userId', 'localId', 'saleId', 'customerName', 'amount', 'discountApplied', 'currency', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'localId', 'saleId', 'customerName', 'amount', 'discountApplied', 'currency', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidPayment(incoming(), userId);
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(paymentId);
+    }
+
+    match /users/{userId}/expenses/{expenseId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(expenseId);
+      allow create: if isOwner(userId) && isValidId(expenseId) &&
+                       incoming().keys().hasAll(['userId', 'localId', 'title', 'amount', 'currency', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'localId', 'title', 'amount', 'currency', 'dayKey', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidExpense(incoming(), userId);
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(expenseId);
+    }
+
+    match /users/{userId}/cash_drops/{dropId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(dropId);
+      allow create: if isOwner(userId) && isValidId(dropId) &&
+                       incoming().keys().hasAll(['userId', 'amount', 'currency', 'otp', 'status', 'agentName', 'note', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'amount', 'currency', 'otp', 'status', 'agentName', 'note', 'createdAt', 'updatedAt']) &&
+                       incoming().status == 'PENDING' &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidCashDrop(incoming(), userId);
+      allow update: if isOwner(userId) && isValidId(dropId) &&
+                       isValidCashDrop(incoming(), userId) &&
+                       existing().status == 'PENDING' &&
+                       incoming().status == 'COMPLETED' &&
+                       incoming().otp == existing().otp &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().confirmedAt is timestamp && incoming().confirmedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'confirmedAt', 'updatedAt']);
+      allow delete: if isOwner(userId) && isValidId(dropId);
+    }
+
+    match /users/{userId}/chat_messages/{msgId} {
+      allow list: if isOwner(userId);
+      allow get: if isOwner(userId) && isValidId(msgId);
+      allow create: if isOwner(userId) && isValidId(msgId) &&
+                       incoming().keys().hasAll(['userId', 'senderRole', 'senderName', 'text', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'senderRole', 'senderName', 'text', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidChatMessage(incoming(), userId);
+      allow update: if false;
+      allow delete: if isOwner(userId) && isValidId(msgId);
+    }
+  }
+}
