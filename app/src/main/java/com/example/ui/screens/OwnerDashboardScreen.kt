@@ -124,9 +124,9 @@ fun OwnerDashboardScreen(
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(
-                                        Color(0xE60B3D2E),
-                                        Color(0xB30B3D2E),
-                                        Color(0x660B3D2E)
+                                        Color(0xEB07291F),
+                                        Color(0xC20B3D2E),
+                                        Color(0x5207291F)
                                     )
                                 )
                             )
@@ -233,6 +233,72 @@ fun OwnerDashboardScreen(
                     accentColor = UsdEmerald,
                     modifier = Modifier.weight(1f)
                 )
+            }
+        }
+
+        // $50 USD Daily Net Profit Target & AI Coach Progress Card
+        item {
+            val targetUsd = 50.0
+            val progressFraction = (state.netProfitUsd / targetUsd).toFloat().coerceIn(0f, 1f)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    SovereignGold.copy(alpha = 0.4f)
+                ),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = strings.dailyTargetTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = SovereignGold,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${formatUsd(state.netProfitUsd)} / $50",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (state.netProfitUsd >= targetUsd) UsdEmerald else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = if (state.netProfitUsd >= targetUsd) UsdEmerald else SovereignGold,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = onNavigateAi,
+                            modifier = Modifier.testTag("dashboard_ai_coach_button")
+                        ) {
+                            Icon(
+                                Icons.Filled.AutoAwesome,
+                                contentDescription = strings.moduleAiAssistant,
+                                modifier = Modifier.size(16.dp),
+                                tint = SovereignGold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(strings.aiModeDailyTarget, color = SovereignGold)
+                        }
+                    }
+                }
             }
         }
 
@@ -544,6 +610,10 @@ private fun DashboardModuleTile(
             .testTag(tag)
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        ),
         shape = MaterialTheme.shapes.medium
     ) {
         Row(

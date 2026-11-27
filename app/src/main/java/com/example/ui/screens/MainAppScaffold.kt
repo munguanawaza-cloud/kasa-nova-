@@ -20,8 +20,10 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,9 +72,10 @@ import com.example.ui.ArabicStrings
 import com.example.ui.FrenchStrings
 import com.example.ui.KasaViewModel
 import com.example.ui.LocalKasaStrings
-import com.example.ui.theme.ForestSurface
+import com.example.ui.theme.KasaNovaTheme
 import com.example.ui.theme.SovereignGold
 import com.example.ui.theme.UsdEmeraldDark
+import com.example.ui.theme.kasaAmbientBackgroundBrush
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.delay
@@ -142,48 +145,64 @@ fun MainAppScaffold(
 
     val isDashboard = currentRoute == KasaRoutes.ROUTE_DASHBOARD
 
-    CompositionLocalProvider(
-        LocalKasaStrings provides strings,
-        LocalLayoutDirection provides layoutDir
-    ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val useRail = maxWidth >= 600.dp
+    KasaNovaTheme(darkTheme = state.isDarkTheme) {
+        CompositionLocalProvider(
+            LocalKasaStrings provides strings,
+            LocalLayoutDirection provides layoutDir
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(kasaAmbientBackgroundBrush(state.isDarkTheme))
+            ) {
+                val useRail = maxWidth >= 600.dp
 
-            Scaffold(
-                contentWindowInsets = WindowInsets.safeDrawing,
-                snackbarHost = { SnackbarHost(snackbarHostState) },
-                topBar = {
-                    TopAppBar(
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = ForestSurface,
-                            titleContentColor = SovereignGold
-                        ),
-                        navigationIcon = {
-                            if (!isDashboard) {
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    contentWindowInsets = WindowInsets.safeDrawing,
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    topBar = {
+                        TopAppBar(
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                titleContentColor = SovereignGold
+                            ),
+                            navigationIcon = {
+                                if (!isDashboard) {
+                                    IconButton(
+                                        onClick = { navController.popBackStack() },
+                                        modifier = Modifier.testTag("top_back_button")
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Back",
+                                            tint = SovereignGold
+                                        )
+                                    }
+                                }
+                            },
+                            title = {
+                                Text(
+                                    text = strings.appTitle,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SovereignGold
+                                )
+                            },
+                            actions = {
                                 IconButton(
-                                    onClick = { navController.popBackStack() },
-                                    modifier = Modifier.testTag("top_back_button")
+                                    onClick = { kasaViewModel.toggleTheme() },
+                                    modifier = Modifier.testTag("toggle_theme_button")
                                 ) {
                                     Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
+                                        imageVector = if (state.isDarkTheme) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                                        contentDescription = strings.themeToggleLabel,
                                         tint = SovereignGold
                                     )
                                 }
-                            }
-                        },
-                        title = {
-                            Text(
-                                text = strings.appTitle,
-                                fontWeight = FontWeight.Bold,
-                                color = SovereignGold
-                            )
-                        },
-                        actions = {
-                            TextButton(
-                                onClick = { kasaViewModel.toggleLanguage() },
-                                modifier = Modifier.testTag("toggle_language_button")
-                            ) {
+                                TextButton(
+                                    onClick = { kasaViewModel.toggleLanguage() },
+                                    modifier = Modifier.testTag("toggle_language_button")
+                                ) {
                                 Icon(
                                     Icons.Filled.Translate,
                                     contentDescription = "Switch Language",
@@ -211,7 +230,7 @@ fun MainAppScaffold(
                 },
                 bottomBar = {
                     if (!useRail) {
-                        NavigationBar(containerColor = ForestSurface) {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                             val items = listOf(
                                 Triple(KasaRoutes.ROUTE_DASHBOARD, strings.navHome, Icons.Filled.Dashboard),
                                 Triple(KasaRoutes.ROUTE_NEW_SALE, strings.navSales, Icons.Filled.AddShoppingCart),
@@ -244,7 +263,7 @@ fun MainAppScaffold(
                 ) {
                     if (useRail) {
                         NavigationRail(
-                            containerColor = ForestSurface,
+                            containerColor = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.fillMaxHeight()
                         ) {
                             val items = listOf(
@@ -338,6 +357,7 @@ fun MainAppScaffold(
                                 AiAssistantScreen(
                                     state = state,
                                     onAnalyzeToday = kasaViewModel::analyzeTodayWithAi,
+                                    onRunQuickAction = kasaViewModel::runAiQuickAction,
                                     onAskAi = kasaViewModel::askAi
                                 )
                             }
@@ -376,5 +396,6 @@ fun MainAppScaffold(
                 }
             }
         }
+    }
     }
 }

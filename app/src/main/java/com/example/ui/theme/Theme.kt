@@ -6,6 +6,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -33,7 +34,7 @@ private val KasaDarkColorScheme = darkColorScheme(
     surfaceContainerHigh = ForestSurfaceHighest,
     outline = ForestOutline,
     error = OverdueCrimson,
-    onError = Color.White,
+    onError = Color(0xFF280808),
     errorContainer = OverdueCrimsonContainer,
     onErrorContainer = Color(0xFFFECACA)
 )
@@ -73,6 +74,18 @@ val KasaShapes = Shapes(
     large = RoundedCornerShape(22.dp),
     extraLarge = RoundedCornerShape(28.dp)
 )
+
+fun kasaAmbientBackgroundBrush(darkTheme: Boolean): Brush {
+    return if (darkTheme) {
+        Brush.verticalGradient(
+            colors = listOf(ForestBgDeep, ForestBg, ForestBgBottom)
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(IvoryBg, Color(0xFFECF3EF), IvoryBg)
+        )
+    }
+}
 
 @Composable
 fun KasaNovaTheme(

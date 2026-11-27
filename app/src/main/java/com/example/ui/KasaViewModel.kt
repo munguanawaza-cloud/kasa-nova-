@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.AiQuickAction
 import com.example.ai.KasaAiManager
 import com.example.data.InstallmentPaymentOutcome
 import com.example.data.KasaOfflineRepository
@@ -35,6 +36,7 @@ data class AiChatBubble(
 
 data class KasaUiState(
     val language: AppLanguage = AppLanguage.FR,
+    val isDarkTheme: Boolean = true,
     val customers: List<CustomerEntity> = emptyList(),
     val products: List<ProductEntity> = emptyList(),
     val sales: List<SaleEntity> = emptyList(),
@@ -213,6 +215,10 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
             val next = if (it.language == AppLanguage.FR) AppLanguage.AR else AppLanguage.FR
             it.copy(language = next)
         }
+    }
+
+    fun toggleTheme() {
+        _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
     }
 
     fun clearBanner() {
@@ -431,12 +437,39 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeTodayWithAi() {
-        val defaultPrompt = if (_uiState.value.language == AppLanguage.FR) {
-            "Analyse les ventes du jour, les recouvrements, la liquidité séparée USD/CDF et propose les priorités de demain."
-        } else {
-            "حلّل مبيعات اليوم والتحصيلات والسيولة المنفصلة بين USD و CDF واقترح أولويات التحصيل للغد."
+        runAiQuickAction(AiQuickAction.DAILY_TARGET_LIQUIDITY)
+    }
+
+    fun runAiQuickAction(action: AiQuickAction, targetProduct: ProductEntity? = null) {
+        val isFrench = _uiState.value.language == AppLanguage.FR
+        val prompt = when (action) {
+            AiQuickAction.DAILY_TARGET_LIQUIDITY -> if (isFrench) {
+                "Analyse le bilan du jour séparément en USD et CDF, évalue l'atteinte de l'objectif net de 50 USD/jour et donne 3 actions de liquidité."
+            } else {
+                "حلّل بيانات اليوم مع فصل تام بين USD و CDF، وقيّم مدى اقترابنا من هدف 50 USD صافي ربح يومي مع 3 توصيات عملية للسيولة."
+            }
+            AiQuickAction.COLLECTIONS_PRIORITY -> if (isFrench) {
+                "Classe les clients ayant des crédits actifs par priorité de recouvrement pour demain, et rédige un court message WhatsApp professionnel (FR + AR) pour le premier client."
+            } else {
+                "رتّب العملاء أصحاب الأقساط النشطة حسب أولوية التحصيل لغداً، وصغ رسالة واتساب مهذبة بالفرنسية والعربية لأول عميل."
+            }
+            AiQuickAction.SALES_OFFER_COMPOSER -> {
+                val productLabel = targetProduct?.let {
+                    "${it.name} (${it.category}) — ${it.priceUsd} USD / ${it.priceCdf.toInt()} CDF"
+                } ?: "nos meilleurs produits Cuisine, Beauté & Maison"
+                if (isFrench) {
+                    "Rédige une offre commerciale percutante en Français et en Arabe (prête à copier sur WhatsApp et TikTok) pour : $productLabel, en mentionnant la disponibilité à Kolwezi et la tombola client."
+                } else {
+                    "صغ عرض بيع جذاب وجاهز للنشر على واتساب وتيك توك باللغتين العربية والفرنسية للمنتج: $productLabel، مع ذكر التوفر في كولويزي وفرصة سحب الجوائز."
+                }
+            }
+            AiQuickAction.RESTOCK_ADVISOR -> if (isFrench) {
+                "Analyse les articles en alerte stock bas (< 5 unités) dans Cuisine, Beauté et Maison, et recommande l'ordre de réapprovisionnement sans mélanger USD et CDF."
+            } else {
+                "حلّل المنتجات منخفضة المخزون (< 5 وحدات) في أقسام المطبخ والجمال والمنزل، واقترح خطة إعادة التزويد ذات الأولوية مع فصل USD و CDF."
+            }
         }
-        askAi(defaultPrompt)
+        askAi(prompt)
     }
 
     fun askAi(prompt: String) {
@@ -474,7 +507,9 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
                     snapshot = snapshot,
                     activeInstallmentsUsd = stateSnapshot.overdueUsd,
                     activeInstallmentsCdf = stateSnapshot.overdueCdf,
-                    lowStockCount = stateSnapshot.lowStockCount
+                    lowStockProducts = stateSnapshot.products.filter { it.isLowStock },
+                    activeInstallments = stateSnapshot.activeInstallments,
+                    catalogProducts = stateSnapshot.products
                 ).collect { chunk ->
                     builder.append(chunk)
                     val textSoFar = builder.toString()

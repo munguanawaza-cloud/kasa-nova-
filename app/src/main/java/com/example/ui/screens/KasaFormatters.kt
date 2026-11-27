@@ -90,6 +90,10 @@ fun DualCurrencyStatCard(
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+        ),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
