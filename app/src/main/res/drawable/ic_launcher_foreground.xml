@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/img_kasa_nova_icon"
+        android:drawable="@drawable/ic_launcher_kasa_fg"
         android:gravity="center" />
 </layer-list>
