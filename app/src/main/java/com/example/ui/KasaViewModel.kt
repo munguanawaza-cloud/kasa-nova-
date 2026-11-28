@@ -23,6 +23,7 @@ import com.example.data.sync.ChatMessageRecord
 import com.example.data.sync.FirebaseSyncManager
 import com.example.utils.TimeUtils
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,7 +82,7 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
     private val localDb = KasaDatabase.getInstance(application)
     private val syncManager = FirebaseSyncManager(application, localDb)
     private val repository = KasaOfflineRepository(localDb, syncManager)
-    private val aiManager = KasaAiManager()
+    private val aiManager by lazy { KasaAiManager() }
 
     private val _uiState = MutableStateFlow(KasaUiState(isOnline = repository.isOnline()))
     val uiState: StateFlow<KasaUiState> = _uiState.asStateFlow()
@@ -92,7 +93,8 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun observeLocalLedgers() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
             val baseStreams = combine(
                 repository.observeCustomers(),
                 repository.observeProducts(),
@@ -175,43 +177,63 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
                     unsyncedCount = unsynced,
                     isOnline = repository.isOnline()
                 )
+            }.catch { err ->
+                Log.e("KasaViewModel", "Local ledger observation error", err)
             }.collect { updated ->
                 _uiState.value = updated
+            }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("KasaViewModel", "Failed observing local ledgers", e)
             }
         }
     }
 
     private fun observeCloudStreams() {
-        viewModelScope.launch {
-            repository.observeCashDrops()
-                .catch { /* handled via FirestoreErrorHandler */ }
-                .collect { drops ->
-                    _uiState.update { it.copy(cashDrops = drops) }
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.observeCashDrops()
+                    .catch { err -> Log.w("KasaViewModel", "Cloud cash drops skipped: ${err.message}") }
+                    .collect { drops ->
+                        _uiState.update { it.copy(cashDrops = drops) }
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("KasaViewModel", "Cloud cash drops stream error: ${e.message}")
+            }
         }
-        viewModelScope.launch {
-            combine(
-                repository.observeChatMessages(),
-                repository.observeLocalChatMessages()
-            ) { remote, local ->
-                if (remote.isNotEmpty()) {
-                    remote
-                } else {
-                    local.map {
-                        ChatMessageRecord(
-                            id = it.remoteId,
-                            senderRole = it.senderRole,
-                            senderName = it.senderName,
-                            text = it.text,
-                            createdAtMillis = it.createdAt
-                        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                combine(
+                    repository.observeChatMessages()
+                        .catch { emit(emptyList()) },
+                    repository.observeLocalChatMessages()
+                ) { remote, local ->
+                    if (remote.isNotEmpty()) {
+                        remote
+                    } else {
+                        local.map {
+                            ChatMessageRecord(
+                                id = it.remoteId,
+                                senderRole = it.senderRole,
+                                senderName = it.senderName,
+                                text = it.text,
+                                createdAtMillis = it.createdAt
+                            )
+                        }
                     }
                 }
+                    .catch { err -> Log.w("KasaViewModel", "Chat stream skipped: ${err.message}") }
+                    .collect { messages ->
+                        _uiState.update { it.copy(chatMessages = messages) }
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("KasaViewModel", "Cloud chat stream error: ${e.message}")
             }
-                .catch { /* handled via FirestoreErrorHandler */ }
-                .collect { messages ->
-                    _uiState.update { it.copy(chatMessages = messages) }
-                }
         }
     }
 
@@ -239,26 +261,47 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun seedSampleData() {
-        viewModelScope.launch {
-            repository.seedKolweziSampleData()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.seedKolweziSampleData()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("KasaViewModel", "seedSampleData failed", e)
+                _uiState.update {
+                    it.copy(bannerMessage = e.localizedMessage ?: "Failed to load sample data")
+                }
+            }
         }
     }
 
     fun syncToCloud() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isSyncing = true, bannerMessage = null, isOnline = repository.isOnline()) }
-            val result = repository.syncNow()
-            _uiState.update { state ->
-                state.copy(
-                    isSyncing = false,
-                    bannerMessage = result.fold(
-                        onSuccess = { report ->
-                            val strings = if (state.language == AppLanguage.FR) FrenchStrings else ArabicStrings
-                            "${strings.syncComplete} (${report.totalSynced})"
-                        },
-                        onFailure = { err -> err.localizedMessage ?: "Sync error" }
+            try {
+                val result = repository.syncNow()
+                _uiState.update { state ->
+                    state.copy(
+                        isSyncing = false,
+                        bannerMessage = result.fold(
+                            onSuccess = { report ->
+                                val strings = if (state.language == AppLanguage.FR) FrenchStrings else ArabicStrings
+                                "${strings.syncComplete} (${report.totalSynced})"
+                            },
+                            onFailure = { err -> err.localizedMessage ?: "Sync error" }
+                        )
                     )
-                )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("KasaViewModel", "syncToCloud failed", e)
+                _uiState.update {
+                    it.copy(
+                        isSyncing = false,
+                        bannerMessage = e.localizedMessage ?: "Sync unavailable"
+                    )
+                }
             }
         }
     }

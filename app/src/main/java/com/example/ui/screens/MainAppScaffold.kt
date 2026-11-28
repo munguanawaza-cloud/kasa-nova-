@@ -64,8 +64,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.auth.AuthScreen
-import com.example.auth.authStateFlow
+import com.example.auth.hasGoogleSignInConfig
+import com.example.auth.onGoogleSignInClicked
+import com.example.auth.safeAuthStateFlow
 import com.example.auth.signOutUser
 import com.example.ui.AppLanguage
 import com.example.ui.ArabicStrings
@@ -76,8 +77,6 @@ import com.example.ui.theme.KasaNovaTheme
 import com.example.ui.theme.SovereignGold
 import com.example.ui.theme.UsdEmeraldDark
 import com.example.ui.theme.kasaAmbientBackgroundBrush
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.delay
 
 object KasaRoutes {
@@ -96,31 +95,43 @@ object KasaRoutes {
 
 @Composable
 fun AppNavigation() {
-    val authFlow = remember { Firebase.auth.authStateFlow() }
-    val currentUser by authFlow.collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
     val context = LocalContext.current
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(context) {
+        runCatching { CredentialManager.create(context) }.getOrNull()
+    }
+    val hasGoogleConfig = remember(context) { hasGoogleSignInConfig(context) }
+    val authFlow = remember(context) { safeAuthStateFlow(context) }
+    val currentUser by authFlow.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
 
-    if (currentUser == null) {
-        AuthScreen(
-            onAuthSuccess = { /* handled reactively by authStateFlow */ }
-        )
-    } else {
-        MainAppScaffold(
-            onSignOut = {
-                signOutUser(
-                    credentialManager = credentialManager,
-                    scope = scope
-                )
-            }
-        )
-    }
+    MainAppScaffold(
+        showAuthAction = hasGoogleConfig,
+        isSignedIn = currentUser != null,
+        onSignIn = {
+            onGoogleSignInClicked(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onAuthError = {},
+                scope = scope
+            )
+        },
+        onSignOut = {
+            signOutUser(
+                context = context,
+                credentialManager = credentialManager,
+                scope = scope
+            )
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScaffold(
+    showAuthAction: Boolean = false,
+    isSignedIn: Boolean = false,
+    onSignIn: () -> Unit = {},
     onSignOut: () -> Unit,
     kasaViewModel: KasaViewModel = viewModel()
 ) {
@@ -205,31 +216,46 @@ fun MainAppScaffold(
                                     onClick = { kasaViewModel.toggleLanguage() },
                                     modifier = Modifier.testTag("toggle_language_button")
                                 ) {
-                                Icon(
-                                    Icons.Filled.Translate,
-                                    contentDescription = "Switch Language",
-                                    tint = SovereignGold
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (state.language == AppLanguage.FR) "AR" else "FR",
-                                    color = SovereignGold,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                    Icon(
+                                        Icons.Filled.Translate,
+                                        contentDescription = "Switch Language",
+                                        tint = SovereignGold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (state.language == AppLanguage.FR) "AR" else "FR",
+                                        color = SovereignGold,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                if (showAuthAction) {
+                                    if (isSignedIn) {
+                                        IconButton(
+                                            onClick = onSignOut,
+                                            modifier = Modifier.testTag("sign_out_button")
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Logout,
+                                                contentDescription = "Sign Out",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    } else {
+                                        TextButton(
+                                            onClick = onSignIn,
+                                            modifier = Modifier.testTag("google_sign_in_top_button")
+                                        ) {
+                                            Text(
+                                                text = "Sync Login",
+                                                color = SovereignGold,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                            IconButton(
-                                onClick = onSignOut,
-                                modifier = Modifier.testTag("sign_out_button")
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Logout,
-                                    contentDescription = "Sign Out",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    )
-                },
+                        )
+                    },
                 bottomBar = {
                     if (!useRail) {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {

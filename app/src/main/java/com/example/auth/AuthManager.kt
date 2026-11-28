@@ -36,10 +36,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,11 +71,10 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
@@ -87,62 +86,91 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "Auth"
 
-internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
-    val listener = FirebaseAuth.AuthStateListener { auth ->
-        trySend(auth.currentUser)
+private fun getFirebaseAuthOrNull(context: Context): FirebaseAuth? = runCatching {
+    if (FirebaseApp.getApps(context).isEmpty()) {
+        FirebaseApp.initializeApp(context)
     }
-    addAuthStateListener(listener)
-    awaitClose { removeAuthStateListener(listener) }
-}
+    FirebaseAuth.getInstance()
+}.onFailure { err ->
+    Log.w(TAG, "FirebaseAuth unavailable: ${err.message}")
+}.getOrNull()
 
-private fun resolveDefaultWebClientId(context: Context): String? {
+fun resolveDefaultWebClientId(context: Context): String? = runCatching {
     val resId = context.resources.getIdentifier(
         "default_web_client_id",
         "string",
         context.packageName
     )
-    if (resId == 0) return null
-    return runCatching { context.getString(resId) }
-        .getOrNull()
-        ?.takeIf { it.isNotBlank() }
+    if (resId == 0) return@runCatching null
+    context.getString(resId).takeIf { it.isNotBlank() }
+}.getOrNull()
+
+fun hasGoogleSignInConfig(context: Context): Boolean = resolveDefaultWebClientId(context) != null
+
+internal fun safeAuthStateFlow(context: Context): Flow<FirebaseUser?> = callbackFlow {
+    val auth = getFirebaseAuthOrNull(context)
+    if (auth == null) {
+        trySend(null)
+        close()
+        return@callbackFlow
+    }
+    val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+        trySend(runCatching { firebaseAuth.currentUser }.getOrNull())
+    }
+    runCatching {
+        auth.addAuthStateListener(listener)
+    }.onFailure {
+        trySend(null)
+        close()
+        return@callbackFlow
+    }
+    awaitClose {
+        runCatching { auth.removeAuthStateListener(listener) }
+    }
 }
 
 fun attemptAutoSignIn(
     context: Context,
-    credentialManager: CredentialManager,
+    credentialManager: CredentialManager?,
     onAuthSuccess: () -> Unit,
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null) {
+    val auth = getFirebaseAuthOrNull(context)
+    if (auth == null) {
+        onUnauthenticated()
+        return
+    }
+    if (runCatching { auth.currentUser }.getOrNull() != null) {
         onAuthSuccess()
         return
     }
     val clientId = resolveDefaultWebClientId(context)
-    if (clientId == null) {
+    if (clientId == null || credentialManager == null) {
         onUnauthenticated()
         return
     }
-    val googleIdOption = GetGoogleIdOption.Builder()
-        .setFilterByAuthorizedAccounts(true)
-        .setServerClientId(clientId)
-        .setAutoSelectEnabled(true)
-        .build()
-    val request = GetCredentialRequest.Builder()
-        .addCredentialOption(googleIdOption)
-        .build()
-
     scope.launch {
         try {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(true)
+                .setServerClientId(clientId)
+                .setAutoSelectEnabled(true)
+                .build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+
             val cred = credentialManager.getCredential(context, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
+                auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
                 onAuthSuccess()
             } else {
                 onUnauthenticated()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Auto sign-in skipped: ${e.message}")
             onUnauthenticated()
         }
     }
@@ -150,7 +178,7 @@ fun attemptAutoSignIn(
 
 fun onGoogleSignInClicked(
     context: Context,
-    credentialManager: CredentialManager,
+    credentialManager: CredentialManager?,
     onAuthSuccess: () -> Unit,
     onAuthError: (String) -> Unit,
     scope: CoroutineScope,
@@ -158,7 +186,12 @@ fun onGoogleSignInClicked(
 ) {
     val clientId = resolveDefaultWebClientId(context)
     if (clientId == null) {
-        onAuthError("Google Sign-In configuration missing: add app/google-services.json and rebuild.")
+        onAuthError("Google Sign-In unavailable: default_web_client_id not configured.")
+        return
+    }
+    val auth = getFirebaseAuthOrNull(context)
+    if (auth == null) {
+        onAuthError("Firebase Authentication unavailable right now.")
         return
     }
     val activity = context as? Activity
@@ -166,18 +199,21 @@ fun onGoogleSignInClicked(
         onAuthError("Activity context required for Google Sign-In")
         return
     }
-
-    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-    val request = GetCredentialRequest.Builder()
-        .addCredentialOption(signInOption)
-        .build()
+    if (credentialManager == null) {
+        onAuthError("CredentialManager unavailable on this device")
+        return
+    }
 
     scope.launch {
         try {
+            val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(signInOption)
+                .build()
             val cred = credentialManager.getCredential(activity, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
+                auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
                 onAuthSuccess()
             } else {
                 onAuthError("Unexpected credential type")
@@ -193,20 +229,24 @@ fun onGoogleSignInClicked(
 }
 
 fun signOutUser(
-    credentialManager: CredentialManager,
+    context: Context,
+    credentialManager: CredentialManager?,
     scope: CoroutineScope,
     onSignOutComplete: () -> Unit = {}
 ) {
     scope.launch {
         withContext(NonCancellable) {
-            try {
-                credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            } catch (e: Exception) {
+            runCatching {
+                credentialManager?.clearCredentialState(ClearCredentialStateRequest())
+            }.onFailure { e ->
                 Log.w(TAG, "Failed to clear credential state: ${e.message}")
-            } finally {
-                Firebase.auth.signOut()
-                onSignOutComplete()
             }
+            runCatching {
+                getFirebaseAuthOrNull(context)?.signOut()
+            }.onFailure { e ->
+                Log.w(TAG, "Firebase signOut failed: ${e.message}")
+            }
+            onSignOutComplete()
         }
     }
 }
@@ -217,26 +257,13 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val credentialManager = remember(context) {
+        runCatching { CredentialManager.create(context) }.getOrNull()
+    }
+    val showGoogleSignIn = remember(context) { hasGoogleSignInConfig(context) }
 
-    var isCheckingAutoSignIn by remember { mutableStateOf(true) }
     var isSigningIn by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {
-                isCheckingAutoSignIn = false
-                onAuthSuccess()
-            },
-            onUnauthenticated = {
-                isCheckingAutoSignIn = false
-            },
-            scope = scope
-        )
-    }
 
     Box(
         modifier = Modifier
@@ -254,7 +281,6 @@ fun AuthScreen(
                 .padding(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // Hero Command Card with Generated Kolwezi Artwork
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -327,7 +353,6 @@ fun AuthScreen(
                 }
             }
 
-            // Three core pillars card
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -361,7 +386,7 @@ fun AuthScreen(
                         icon = Icons.Default.AutoAwesome,
                         tint = CopperGold,
                         title = "KASA AI Bilingual Advisor (FR / AR)",
-                        detail = "Read-only Gemini 3.8 Flash analysis for stock, collections & FR/AR sales offers."
+                        detail = "Read-only Gemini analysis for stock, collections & FR/AR sales offers."
                     )
                 }
             }
@@ -381,61 +406,74 @@ fun AuthScreen(
                 }
             }
 
-            Button(
-                onClick = {
-                    errorMessage = null
-                    isSigningIn = true
-                    onGoogleSignInClicked(
-                        context = context,
-                        credentialManager = credentialManager,
-                        onAuthSuccess = {
-                            isSigningIn = false
-                            onAuthSuccess()
-                        },
-                        onAuthError = { msg ->
-                            isSigningIn = false
-                            errorMessage = msg
-                        },
-                        scope = scope,
-                        onAuthCancelled = {
-                            isSigningIn = false
-                        }
-                    )
-                },
-                enabled = !isSigningIn && !isCheckingAutoSignIn,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
+            if (showGoogleSignIn) {
+                Button(
+                    onClick = {
+                        errorMessage = null
+                        isSigningIn = true
+                        onGoogleSignInClicked(
+                            context = context,
+                            credentialManager = credentialManager,
+                            onAuthSuccess = {
+                                isSigningIn = false
+                                onAuthSuccess()
+                            },
+                            onAuthError = { msg ->
+                                isSigningIn = false
+                                errorMessage = msg
+                            },
+                            scope = scope,
+                            onAuthCancelled = {
+                                isSigningIn = false
+                            }
+                        )
+                    },
+                    enabled = !isSigningIn,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .testTag("google_sign_in_button")
+                ) {
+                    if (isSigningIn) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Signing in...", style = MaterialTheme.typography.labelLarge)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.sign_in_google),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+
+            OutlinedButton(
+                onClick = onAuthSuccess,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
-                    .testTag("google_sign_in_button")
+                    .height(50.dp)
+                    .testTag("continue_offline_button")
             ) {
-                if (isSigningIn || isCheckingAutoSignIn) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (isCheckingAutoSignIn) "Restoring session..." else "Signing in...",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.VerifiedUser,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.sign_in_google),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
+                Text(
+                    text = "Continue Offline (Local Room)",
+                    style = MaterialTheme.typography.labelLarge
+                )
             }
         }
     }
