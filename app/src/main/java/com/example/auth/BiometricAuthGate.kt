@@ -3,6 +3,7 @@ package com.example.auth
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
+import android.util.Log
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.BorderStroke
@@ -57,6 +58,9 @@ import com.example.ui.theme.PromiseAmber
 import com.example.ui.theme.SovereignGold
 import com.example.ui.theme.UsdEmerald
 import com.example.ui.theme.kasaAmbientBackgroundBrush
+import kotlinx.coroutines.delay
+
+private const val TAG = "BiometricAuth"
 
 @Composable
 fun BiometricAuthGate(
@@ -64,18 +68,26 @@ fun BiometricAuthGate(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findFragmentActivity() }
-    val biometricManager = remember(context) { BiometricManager.from(context) }
+    val biometricManager = remember(context) {
+        runCatching { BiometricManager.from(context) }.getOrNull()
+    }
 
     val canAuthenticateStatus = remember(biometricManager) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            biometricManager.canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            biometricManager.canAuthenticate()
+        runCatching {
+            if (biometricManager == null) BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                biometricManager.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                biometricManager.canAuthenticate()
+            }
+        }.getOrElse {
+            Log.w(TAG, "Error checking biometric availability", it)
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE
         }
     }
 
@@ -85,65 +97,63 @@ fun BiometricAuthGate(
 
     fun launchPrompt() {
         val host = activity
-        if (host == null) {
+        if (host == null || host.isFinishing || host.isDestroyed) {
+            Log.w(TAG, "FragmentActivity not ready for BiometricPrompt; bypassing gate safely.")
             isUnlocked = true
             return
         }
         statusMessage = null
-        val executor = ContextCompat.getMainExecutor(host)
-        val prompt = BiometricPrompt(
-            host,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    isUnlocked = true
-                    statusMessage = null
-                }
+        runCatching {
+            val executor = ContextCompat.getMainExecutor(host)
+            val prompt = BiometricPrompt(
+                host,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        isUnlocked = true
+                        statusMessage = null
+                    }
 
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    if (errorCode == BiometricPrompt.ERROR_NO_BIOMETRICS ||
-                        errorCode == BiometricPrompt.ERROR_HW_NOT_PRESENT ||
-                        errorCode == BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL
-                    ) {
-                        statusMessage = errString.toString()
-                    } else {
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        Log.w(TAG, "Biometric error: $errorCode - $errString")
                         statusMessage = errString.toString()
                     }
+
+                    override fun onAuthenticationFailed() {
+                        super.onAuthenticationFailed()
+                        statusMessage = "Empreinte ou visage non reconnu / البصمة غير مطابقة"
+                    }
                 }
-
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    statusMessage = "Empreinte ou visage non reconnu / البصمة غير مطابقة"
-                }
-            }
-        )
-
-        val infoBuilder = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("KASA NOVA · Verrouillage Propriétaire")
-            .setSubtitle("Authentification requise · التحقق بالبصمة أو الوجه لحماية البيانات المالية")
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            infoBuilder.setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
-        } else {
-            @Suppress("DEPRECATION")
-            infoBuilder.setDeviceCredentialAllowed(true)
-        }
 
-        runCatching {
+            val infoBuilder = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("KASA NOVA · Verrouillage Propriétaire")
+                .setSubtitle("Authentification requise · التحقق بالبصمة أو الوجه لحماية البيانات المالية")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                infoBuilder.setAllowedAuthenticators(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                infoBuilder.setDeviceCredentialAllowed(true)
+            }
+
             prompt.authenticate(infoBuilder.build())
         }.onFailure { err ->
+            Log.e(TAG, "Failed to launch BiometricPrompt", err)
             statusMessage = err.localizedMessage ?: "Biometric prompt unavailable"
         }
     }
 
     LaunchedEffect(isBiometricAvailable) {
         if (isBiometricAvailable && !isUnlocked) {
+            // Slight delay ensures Activity window is fully attached before launching biometric prompt
+            delay(300L)
             launchPrompt()
         }
     }
