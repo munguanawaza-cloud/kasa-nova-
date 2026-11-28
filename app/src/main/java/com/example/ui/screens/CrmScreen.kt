@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,36 +24,47 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.example.data.local.CustomerEntity
 import com.example.data.local.CustomerSource
+import com.example.data.local.CustomerStatus
 import com.example.ui.KasaUiState
 import com.example.ui.LocalKasaStrings
+import com.example.ui.theme.PromiseAmber
 import com.example.ui.theme.SovereignGold
 import com.example.ui.theme.SovereignGoldContainer
 import com.example.ui.theme.UsdEmerald
@@ -74,22 +86,35 @@ fun CrmScreen(
 ) {
     val strings = LocalKasaStrings.current
     val context = LocalContext.current
+    val isArabic = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     var searchQuery by remember { mutableStateOf("") }
+    var showOnlyPotential by remember { mutableStateOf(false) }
     var selectedProfile by remember { mutableStateOf<CustomerEntity?>(null) }
     var showAddCustomerDialog by remember { mutableStateOf(false) }
+    var showCsvExportDialog by remember { mutableStateOf(false) }
 
-    val filtered = remember(state.customers, searchQuery) {
+    val potentialCount = remember(state.customers) {
+        state.customers.count { it.status == CustomerStatus.POTENTIAL }
+    }
+
+    val filtered = remember(state.customers, searchQuery, showOnlyPotential) {
         val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) state.customers
-        else state.customers.filter {
-            it.name.lowercase().contains(q) ||
-                it.address.lowercase().contains(q) ||
-                it.phone.lowercase().contains(q) ||
-                it.source.lowercase().contains(q)
+        state.customers.filter { customer ->
+            val matchesStatus = !showOnlyPotential || customer.status == CustomerStatus.POTENTIAL
+            val matchesQuery = q.isEmpty() ||
+                customer.name.lowercase().contains(q) ||
+                customer.address.lowercase().contains(q) ||
+                customer.phone.lowercase().contains(q) ||
+                customer.source.lowercase().contains(q)
+            matchesStatus && matchesQuery
         }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddCustomerDialog = true },
@@ -125,6 +150,50 @@ fun CrmScreen(
                     .fillMaxWidth()
                     .testTag("crm_search_input")
             )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = !showOnlyPotential,
+                    onClick = { showOnlyPotential = false },
+                    label = {
+                        Text(if (isArabic) "الكل (${state.customers.size})" else "Tous (${state.customers.size})")
+                    },
+                    modifier = Modifier.testTag("crm_filter_all")
+                )
+                FilterChip(
+                    selected = showOnlyPotential,
+                    onClick = { showOnlyPotential = true },
+                    label = { Text("POTENTIAL ($potentialCount)") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = PromiseAmber.copy(alpha = 0.22f),
+                        selectedLabelColor = PromiseAmber
+                    ),
+                    modifier = Modifier.testTag("crm_filter_potential")
+                )
+                OutlinedButton(
+                    onClick = { showCsvExportDialog = true },
+                    modifier = Modifier.testTag("crm_export_csv_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.TableChart,
+                        contentDescription = "Export Potential Leads CSV",
+                        tint = SovereignGold,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isArabic) "تصدير CSV ($potentialCount)" else "CSV Leads ($potentialCount)",
+                        color = SovereignGold
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             LazyColumn(
@@ -172,6 +241,21 @@ fun CrmScreen(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
+                                    }
+                                    if (customer.status == CustomerStatus.POTENTIAL) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(PromiseAmber.copy(alpha = 0.18f))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = CustomerStatus.POTENTIAL,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = PromiseAmber,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
                                     Row(
                                         modifier = Modifier
@@ -261,6 +345,17 @@ fun CrmScreen(
             onSave = { name, phone, address, lat, lng, source ->
                 onSaveCustomer(0L, name, phone, address, lat, lng, source, 0)
                 showAddCustomerDialog = false
+            }
+        )
+    }
+
+    if (showCsvExportDialog) {
+        PotentialLeadsCsvExportDialog(
+            potentialCount = potentialCount,
+            isArabic = isArabic,
+            onDismiss = { showCsvExportDialog = false },
+            onExported = { message ->
+                scope.launch { snackbarHostState.showSnackbar(message) }
             }
         )
     }

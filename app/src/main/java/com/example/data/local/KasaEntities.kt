@@ -23,6 +23,11 @@ object CustomerSource {
     val ALL = listOf(FACEBOOK, TIKTOK, WHATSAPP, REFERRAL)
 }
 
+object CustomerStatus {
+    const val ACTIVE = "ACTIVE"
+    const val POTENTIAL = "POTENTIAL"
+}
+
 object ProductCategory {
     const val CUISINE = "Cuisine"
     const val BEAUTE = "Beauté"
@@ -40,6 +45,7 @@ data class CustomerEntity(
     @ColumnInfo(name = "gps_lat") val gpsLat: Double = -10.7167,
     @ColumnInfo(name = "gps_lng") val gpsLng: Double = 25.4667,
     val source: String = CustomerSource.WHATSAPP,
+    val status: String = CustomerStatus.ACTIVE,
     @ColumnInfo(name = "loyalty_points") val loyaltyPoints: Int = 0,
     @ColumnInfo(name = "is_synced") val isSynced: Boolean = false,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()

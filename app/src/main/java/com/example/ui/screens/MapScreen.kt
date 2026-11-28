@@ -8,6 +8,7 @@ import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Radar
@@ -28,6 +30,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -48,8 +52,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.data.local.CustomerStatus
 import com.example.ui.KasaUiState
 import com.example.ui.LocalKasaStrings
+import com.example.ui.theme.PromiseAmber
 import com.example.ui.theme.SovereignGold
 import com.example.ui.theme.SovereignGoldContainer
 import com.example.ui.theme.UsdEmerald
@@ -82,6 +88,7 @@ fun MapScreen(state: KasaUiState) {
     }
     var agentLatLng by remember { mutableStateOf(LatLng(-10.7185, 25.4712)) }
     var radarScanActive by remember { mutableStateOf(false) }
+    var onlyPotentialLeads by remember { mutableStateOf(false) }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -102,8 +109,20 @@ fun MapScreen(state: KasaUiState) {
         position = CameraPosition.fromLatLngZoom(golfIstm, 11.4f)
     }
 
-    val radarCustomers = remember(state.customers) {
-        state.customers.filter {
+    val displayedCustomers = remember(state.customers, onlyPotentialLeads) {
+        if (onlyPotentialLeads) {
+            state.customers.filter { it.status == CustomerStatus.POTENTIAL }
+        } else {
+            state.customers
+        }
+    }
+
+    val potentialCount = remember(state.customers) {
+        state.customers.count { it.status == CustomerStatus.POTENTIAL }
+    }
+
+    val radarCustomers = remember(displayedCustomers) {
+        displayedCustomers.filter {
             TimeUtils.distanceKmFromGolfIstm(it.gpsLat, it.gpsLng) > TimeUtils.RADAR_HIGHLIGHT_KM
         }
     }
@@ -150,6 +169,29 @@ fun MapScreen(state: KasaUiState) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(strings.radarButtonLabel, fontWeight = FontWeight.Bold)
                 }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !onlyPotentialLeads,
+                    onClick = { onlyPotentialLeads = false },
+                    label = { Text("All (${state.customers.size})") }
+                )
+                FilterChip(
+                    selected = onlyPotentialLeads,
+                    onClick = { onlyPotentialLeads = true },
+                    label = { Text("Lead Map · POTENTIAL ($potentialCount)") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = PromiseAmber.copy(alpha = 0.22f),
+                        selectedLabelColor = PromiseAmber
+                    ),
+                    modifier = Modifier.testTag("map_filter_potential_leads")
+                )
             }
 
             if (!hasLocationPermission) {
@@ -216,21 +258,25 @@ fun MapScreen(state: KasaUiState) {
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
                 )
 
-                // Customer Markers (Star highlight + Radar label if > 15km away)
-                state.customers.forEach { customer ->
+                // Customer & Lead Markers
+                displayedCustomers.forEach { customer ->
                     val distKm = TimeUtils.distanceKmFromGolfIstm(customer.gpsLat, customer.gpsLng)
                     val isRadarCustomer = distKm > TimeUtils.RADAR_HIGHLIGHT_KM
+                    val isPotentialLead = customer.status == CustomerStatus.POTENTIAL
                     Marker(
                         state = MarkerState(position = LatLng(customer.gpsLat, customer.gpsLng)),
-                        title = if (isRadarCustomer) {
-                            "★ ${strings.radarCustomerTag}: ${customer.name}"
-                        } else {
-                            customer.name
+                        title = when {
+                            isPotentialLead -> "[LEAD] ${customer.name}"
+                            isRadarCustomer -> "★ ${strings.radarCustomerTag}: ${customer.name}"
+                            else -> customer.name
                         },
-                        snippet = "${customer.address} · ${String.format(Locale.US, "%.1f km", distKm)}",
+                        snippet = "${customer.address} · ${customer.source} · ${String.format(Locale.US, "%.1f km", distKm)}",
                         icon = BitmapDescriptorFactory.defaultMarker(
-                            if (isRadarCustomer) BitmapDescriptorFactory.HUE_YELLOW
-                            else BitmapDescriptorFactory.HUE_ORANGE
+                            when {
+                                isPotentialLead -> BitmapDescriptorFactory.HUE_CYAN
+                                isRadarCustomer -> BitmapDescriptorFactory.HUE_YELLOW
+                                else -> BitmapDescriptorFactory.HUE_ORANGE
+                            }
                         )
                     )
                 }

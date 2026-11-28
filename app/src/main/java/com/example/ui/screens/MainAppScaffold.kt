@@ -90,6 +90,8 @@ object KasaRoutes {
     const val ROUTE_CHAT = "chat"
     const val ROUTE_MAP = "map"
     const val ROUTE_AI = "ai_assistant"
+    const val ROUTE_CASH_FLOW = "cash_flow"
+    const val ROUTE_LEAD_FINDER = "lead_finder"
 }
 
 @Composable
@@ -309,7 +311,20 @@ fun MainAppScaffold(
                                     onNavigateCashVault = { navController.navigate(KasaRoutes.ROUTE_CASH_VAULT) },
                                     onNavigateMap = { navController.navigate(KasaRoutes.ROUTE_MAP) },
                                     onNavigateChat = { navController.navigate(KasaRoutes.ROUTE_CHAT) },
-                                    onNavigateAi = { navController.navigate(KasaRoutes.ROUTE_AI) }
+                                    onNavigateAi = { navController.navigate(KasaRoutes.ROUTE_AI) },
+                                    onNavigateCashFlow = { navController.navigate(KasaRoutes.ROUTE_CASH_FLOW) },
+                                    onNavigateLeadFinder = { navController.navigate(KasaRoutes.ROUTE_LEAD_FINDER) }
+                                )
+                            }
+                            composable(KasaRoutes.ROUTE_CASH_FLOW) {
+                                DashboardScreen()
+                            }
+                            composable(KasaRoutes.ROUTE_LEAD_FINDER) {
+                                AiLeadFinderScreen(
+                                    state = state,
+                                    onSearchLeads = kasaViewModel::searchHighIntentLeads,
+                                    onGenerateSwahiliPitch = kasaViewModel::generateSwahiliPitchForLead,
+                                    onSavePotentialLead = kasaViewModel::savePotentialLead
                                 )
                             }
                             composable(KasaRoutes.ROUTE_NEW_SALE) {

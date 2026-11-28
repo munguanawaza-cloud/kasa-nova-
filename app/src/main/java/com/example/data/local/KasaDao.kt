@@ -17,6 +17,9 @@ interface CustomerDao {
     @Query("SELECT * FROM customers WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CustomerEntity?
 
+    @Query("SELECT * FROM customers WHERE status = 'POTENTIAL' ORDER BY updated_at DESC")
+    suspend fun getPotentialLeads(): List<CustomerEntity>
+
     @Query("SELECT * FROM customers WHERE is_synced = 0")
     suspend fun getUnsynced(): List<CustomerEntity>
 
@@ -28,6 +31,9 @@ interface CustomerDao {
 
     @Query("UPDATE customers SET loyalty_points = loyalty_points + :pointsDelta, is_synced = 0, updated_at = :updatedAt WHERE id = :customerId")
     suspend fun addLoyaltyPoints(customerId: Long, pointsDelta: Int, updatedAt: Long)
+
+    @Query("UPDATE customers SET status = 'ACTIVE', is_synced = 0, updated_at = :updatedAt WHERE id = :customerId AND status = 'POTENTIAL'")
+    suspend fun promotePotentialToActive(customerId: Long, updatedAt: Long)
 
     @Query("UPDATE customers SET is_synced = 1 WHERE id IN (:ids)")
     suspend fun markSynced(ids: List<Long>)
@@ -115,6 +121,7 @@ interface SaleDao {
                 )
             )
         }
+        customerDao.promotePotentialToActive(sale.customerId, sale.createdAt)
         if (loyaltyPointsAwarded > 0) {
             customerDao.addLoyaltyPoints(sale.customerId, loyaltyPointsAwarded, sale.createdAt)
         }

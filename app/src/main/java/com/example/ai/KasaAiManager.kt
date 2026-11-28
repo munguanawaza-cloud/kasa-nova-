@@ -106,4 +106,143 @@ $topProducts
         return model.generateContentStream(prompt)
             .mapNotNull { chunk -> chunk.text }
     }
+
+    private val leadSchema by lazy {
+        com.google.firebase.ai.type.Schema.obj(
+            properties = mapOf(
+                "leads" to com.google.firebase.ai.type.Schema.array(
+                    items = com.google.firebase.ai.type.Schema.obj(
+                        properties = mapOf(
+                            "name" to com.google.firebase.ai.type.Schema.string("Full Congolese/Kolwezi customer name"),
+                            "phone" to com.google.firebase.ai.type.Schema.string("DRC mobile number starting with +243 99... or +243 97..."),
+                            "neighborhood" to com.google.firebase.ai.type.Schema.string("Specific Kolwezi neighborhood inside target area"),
+                            "signal" to com.google.firebase.ai.type.Schema.string("High-intent social or local buying signal"),
+                            "productInterest" to com.google.firebase.ai.type.Schema.string("Specific home appliance needed"),
+                            "installmentBudget" to com.google.firebase.ai.type.Schema.string("Estimated installment capacity in USD or CDF"),
+                            "source" to com.google.firebase.ai.type.Schema.enumeration(
+                                listOf("Facebook", "TikTok", "WhatsApp", "Referral"),
+                                "Discovery channel"
+                            ),
+                            "intentScore" to com.google.firebase.ai.type.Schema.integer("Purchase intent score from 75 to 98"),
+                            "gpsLat" to com.google.firebase.ai.type.Schema.double("Latitude near Kolwezi around -10.71"),
+                            "gpsLng" to com.google.firebase.ai.type.Schema.double("Longitude near Kolwezi around 25.46")
+                        )
+                    ),
+                    description = "4 to 5 realistic high-intent Kolwezi appliance leads"
+                )
+            )
+        )
+    }
+
+    private val leadModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.8-flash",
+            generationConfig = com.google.firebase.ai.type.generationConfig {
+                responseMimeType = "application/json"
+                responseSchema = leadSchema
+            },
+            systemInstruction = content {
+                text(
+                    """
+                    You are KASA NOVA Lead Intelligence for HAMADA GROUP in Kolwezi (Lualaba, DRC).
+                    We sell quality home appliances (blenders, vacuum cleaners, cookware, irons) on installments (Cuisine, Beauté, Maison — NO solar).
+                    Generate realistic, culturally authentic Kolwezi prospective customer leads matching the search criteria.
+                    Keep USD and CDF separate. Phone numbers must look realistic for DRC (+243 99X XXX XXX or +243 97X XXX XXX).
+                    """.trimIndent()
+                )
+            }
+        )
+    }
+
+    private val pitchModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.8-flash",
+            systemInstruction = content {
+                text(
+                    """
+                    You are an expert Swahili sales advisor for KASA NOVA (HAMADA GROUP) in Kolwezi, DRC.
+                    Write warm, respectful, trustworthy WhatsApp outreach messages in natural Katanga/Congolese Swahili.
+                    Focus on product durability, genuine local trust in Kolwezi, and convenient installment terms without ever converting USD and CDF automatically.
+                    Output only the ready-to-send WhatsApp message text.
+                    """.trimIndent()
+                )
+            }
+        )
+    }
+
+    suspend fun findHighIntentLeads(
+        targetArea: String,
+        productInterest: String,
+        budgetCapability: String
+    ): List<AiLeadProfile> {
+        val prompt = """
+            Find 4 realistic high-intent prospective installment customers in Kolwezi, DRC:
+            - Target Area / Neighborhood: $targetArea
+            - Product Interest: $productInterest
+            - Budget / Installment Capability: $budgetCapability
+            Focus strictly on home & kitchen/cleaning/beauty appliances (no solar products).
+        """.trimIndent()
+
+        val response = kotlinx.coroutines.withTimeout(60_000L) {
+            leadModel.generateContent(prompt)
+        }
+        val jsonText = response.text
+            ?: throw IllegalStateException("Empty response from Gemini Lead Finder.")
+
+        val root = org.json.JSONObject(jsonText)
+        val array = root.getJSONArray("leads")
+        val results = mutableListOf<AiLeadProfile>()
+        for (i in 0 until array.length()) {
+            val item = array.getJSONObject(i)
+            results.add(
+                AiLeadProfile(
+                    id = "lead_${System.currentTimeMillis()}_$i",
+                    name = item.getString("name"),
+                    phone = item.getString("phone"),
+                    neighborhood = item.getString("neighborhood"),
+                    signal = item.getString("signal"),
+                    productInterest = item.getString("productInterest"),
+                    installmentBudget = item.getString("installmentBudget"),
+                    source = item.optString("source", "Facebook"),
+                    intentScore = item.optInt("intentScore", 88).coerceIn(70, 99),
+                    gpsLat = item.optDouble("gpsLat", -10.7167),
+                    gpsLng = item.optDouble("gpsLng", 25.4667)
+                )
+            )
+        }
+        return results
+    }
+
+    suspend fun generateSwahiliPitch(lead: AiLeadProfile): String {
+        val prompt = """
+            Write a personalized WhatsApp message in Swahili for this Kolwezi customer:
+            - Customer Name: ${lead.name}
+            - Neighborhood: ${lead.neighborhood}, Kolwezi
+            - Buying Signal: ${lead.signal}
+            - Interested Product: ${lead.productInterest}
+            - Installment Budget: ${lead.installmentBudget}
+            Mention KASA NOVA · HAMADA GROUP Kolwezi, emphasize product quality/warranty, flexible installment plan (malipo kwa awamu), and invite them to reply or call +243 992 120 772.
+        """.trimIndent()
+
+        val response = kotlinx.coroutines.withTimeout(60_000L) {
+            pitchModel.generateContent(prompt)
+        }
+        return response.text?.trim()?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalStateException("Empty Swahili pitch generated.")
+    }
 }
+
+data class AiLeadProfile(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val neighborhood: String,
+    val signal: String,
+    val productInterest: String,
+    val installmentBudget: String,
+    val source: String,
+    val intentScore: Int,
+    val gpsLat: Double,
+    val gpsLng: Double,
+    val swahiliPitch: String? = null
+)

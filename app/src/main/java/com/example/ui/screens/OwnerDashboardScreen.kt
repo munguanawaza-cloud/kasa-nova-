@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,11 +61,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.utils.KasaSqliteDbTarget
 import com.example.data.local.CurrencyCode
 import com.example.data.local.CustomerSource
 import com.example.data.sync.CashDropRecord
@@ -89,10 +94,14 @@ fun OwnerDashboardScreen(
     onNavigateCashVault: () -> Unit,
     onNavigateMap: () -> Unit,
     onNavigateChat: () -> Unit,
-    onNavigateAi: () -> Unit
+    onNavigateAi: () -> Unit,
+    onNavigateCashFlow: () -> Unit = {},
+    onNavigateLeadFinder: () -> Unit = {}
 ) {
     val strings = LocalKasaStrings.current
+    val isArabic = LocalLayoutDirection.current == LayoutDirection.Rtl
     var showExpenseDialog by remember { mutableStateOf(false) }
+    var showSqliteExportDialog by remember { mutableStateOf(false) }
     val otpInputs = remember { mutableStateMapOf<String, String>() }
     val pendingDrops = state.cashDrops.filter { it.status == "PENDING" }
 
@@ -346,6 +355,25 @@ fun OwnerDashboardScreen(
                     Text(strings.addExpense, maxLines = 1)
                 }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { showSqliteExportDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("export_sqlite_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Storage,
+                    contentDescription = "Export SQLite DB",
+                    tint = SovereignGold,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isArabic) "تصدير قاعدة البيانات (SQLite .db)" else "Exporter Base SQLite (.db)",
+                    color = SovereignGold
+                )
+            }
             if (state.products.isEmpty() && state.customers.isEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
@@ -453,6 +481,27 @@ fun OwnerDashboardScreen(
                         accent = SovereignGold,
                         tag = "tile_ai",
                         onClick = onNavigateAi,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    DashboardModuleTile(
+                        title = "AI Lead Finder · البحث عن زبائن",
+                        icon = Icons.Filled.PersonSearch,
+                        accent = SovereignGold,
+                        tag = "tile_lead_finder",
+                        onClick = onNavigateLeadFinder,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DashboardModuleTile(
+                        title = "Cash on Hand · السيولة (Room)",
+                        icon = Icons.Filled.Payments,
+                        accent = UsdEmerald,
+                        tag = "tile_cash_flow",
+                        onClick = onNavigateCashFlow,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -590,6 +639,14 @@ fun OwnerDashboardScreen(
                 onAddExpense(title, amount, currency)
                 showExpenseDialog = false
             }
+        )
+    }
+
+    if (showSqliteExportDialog) {
+        SqliteExportDialog(
+            initialTarget = KasaSqliteDbTarget.MAIN_OFFLINE,
+            isArabic = isArabic,
+            onDismiss = { showSqliteExportDialog = false }
         )
     }
 }

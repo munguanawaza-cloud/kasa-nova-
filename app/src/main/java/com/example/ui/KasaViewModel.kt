@@ -1,8 +1,10 @@
 package com.example.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.AiLeadProfile
 import com.example.ai.AiQuickAction
 import com.example.ai.KasaAiManager
 import com.example.data.InstallmentPaymentOutcome
@@ -20,6 +22,8 @@ import com.example.data.sync.CashDropRecord
 import com.example.data.sync.ChatMessageRecord
 import com.example.data.sync.FirebaseSyncManager
 import com.example.utils.TimeUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,7 +68,12 @@ data class KasaUiState(
     val lastCreatedSale: SaleEntity? = null,
     val aiMessages: List<AiChatBubble> = emptyList(),
     val isAiGenerating: Boolean = false,
-    val aiError: String? = null
+    val aiError: String? = null,
+    val discoveredLeads: List<AiLeadProfile> = emptyList(),
+    val isSearchingLeads: Boolean = false,
+    val leadSearchError: String? = null,
+    val generatingPitchLeadIds: Set<String> = emptySet(),
+    val savedLeadIds: Set<String> = emptySet()
 )
 
 class KasaViewModel(application: Application) : AndroidViewModel(application) {
@@ -535,6 +544,142 @@ class KasaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun getCustomerForSale(customerId: Long): CustomerEntity? = repository.getCustomerById(customerId)
+
+    fun searchHighIntentLeads(
+        targetArea: String,
+        productInterest: String,
+        budgetCapability: String
+    ) {
+        val cleanArea = targetArea.trim()
+        val cleanInterest = productInterest.trim()
+        val cleanBudget = budgetCapability.trim()
+        if (cleanArea.isEmpty() || cleanInterest.isEmpty() || _uiState.value.isSearchingLeads) return
+
+        val strings = if (_uiState.value.language == AppLanguage.FR) FrenchStrings else ArabicStrings
+        if (!repository.isOnline()) {
+            _uiState.update { it.copy(isOnline = false, leadSearchError = strings.aiOfflineError) }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                isOnline = true,
+                isSearchingLeads = true,
+                leadSearchError = null
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val leads = aiManager.findHighIntentLeads(
+                    targetArea = cleanArea,
+                    productInterest = cleanInterest,
+                    budgetCapability = cleanBudget.ifBlank { "Flexible installment plan" }
+                )
+                _uiState.update {
+                    it.copy(
+                        isSearchingLeads = false,
+                        discoveredLeads = leads,
+                        savedLeadIds = emptySet()
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                Log.e("KasaViewModel", "Lead search timed out", e)
+                _uiState.update {
+                    it.copy(
+                        isSearchingLeads = false,
+                        leadSearchError = "Lead search timed out. Please retry."
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("KasaViewModel", "Lead search failed", e)
+                _uiState.update {
+                    it.copy(
+                        isSearchingLeads = false,
+                        leadSearchError = e.localizedMessage ?: strings.aiOfflineError
+                    )
+                }
+            }
+        }
+    }
+
+    fun generateSwahiliPitchForLead(leadId: String) {
+        val lead = _uiState.value.discoveredLeads.find { it.id == leadId } ?: return
+        if (leadId in _uiState.value.generatingPitchLeadIds) return
+
+        val strings = if (_uiState.value.language == AppLanguage.FR) FrenchStrings else ArabicStrings
+        if (!repository.isOnline()) {
+            _uiState.update { it.copy(isOnline = false, leadSearchError = strings.aiOfflineError) }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                generatingPitchLeadIds = it.generatingPitchLeadIds + leadId,
+                leadSearchError = null
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val pitch = aiManager.generateSwahiliPitch(lead)
+                _uiState.update { state ->
+                    state.copy(
+                        generatingPitchLeadIds = state.generatingPitchLeadIds - leadId,
+                        discoveredLeads = state.discoveredLeads.map { item ->
+                            if (item.id == leadId) item.copy(swahiliPitch = pitch) else item
+                        }
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                Log.e("KasaViewModel", "Swahili pitch timed out", e)
+                _uiState.update {
+                    it.copy(
+                        generatingPitchLeadIds = it.generatingPitchLeadIds - leadId,
+                        leadSearchError = "Pitch generation timed out. Please retry."
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("KasaViewModel", "Swahili pitch failed", e)
+                _uiState.update {
+                    it.copy(
+                        generatingPitchLeadIds = it.generatingPitchLeadIds - leadId,
+                        leadSearchError = e.localizedMessage ?: strings.aiOfflineError
+                    )
+                }
+            }
+        }
+    }
+
+    fun savePotentialLead(lead: AiLeadProfile) {
+        if (lead.id in _uiState.value.savedLeadIds) return
+        viewModelScope.launch {
+            repository.savePotentialLead(
+                name = lead.name,
+                phone = lead.phone,
+                address = "${lead.neighborhood}, Kolwezi (${lead.productInterest})",
+                gpsLat = lead.gpsLat,
+                gpsLng = lead.gpsLng,
+                source = lead.source
+            )
+            val isArabic = _uiState.value.language == AppLanguage.AR
+            val msg = if (isArabic) {
+                "تم حفظ ${lead.name} في قاعدة البيانات (POTENTIAL)"
+            } else {
+                "${lead.name} enregistré dans Room (POTENTIAL)"
+            }
+            _uiState.update {
+                it.copy(
+                    savedLeadIds = it.savedLeadIds + lead.id,
+                    greenToastMessage = msg
+                )
+            }
+        }
+    }
 
     private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 }

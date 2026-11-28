@@ -31,6 +31,7 @@ class KasaOfflineRepository(
     private val syncManager: FirebaseSyncManager
 ) {
     fun observeCustomers(): Flow<List<CustomerEntity>> = localDb.customerDao().observeAll()
+    suspend fun getPotentialLeads(): List<CustomerEntity> = localDb.customerDao().getPotentialLeads()
     fun observeProducts(): Flow<List<ProductEntity>> = localDb.productDao().observeAll()
     fun observeSales(): Flow<List<SaleEntity>> = localDb.saleDao().observeAll()
     fun observeActiveInstallments(): Flow<List<SaleEntity>> = localDb.saleDao().observeActiveInstallments()
@@ -81,6 +82,31 @@ class KasaOfflineRepository(
             localDb.customerDao().update(row)
             row.id
         }
+    }
+
+    suspend fun savePotentialLead(
+        name: String,
+        phone: String,
+        address: String,
+        gpsLat: Double,
+        gpsLng: Double,
+        source: String
+    ): Long {
+        val now = TimeUtils.nowMillis()
+        return localDb.customerDao().insert(
+            CustomerEntity(
+                name = name.trim(),
+                phone = phone.trim(),
+                address = address.trim(),
+                gpsLat = gpsLat,
+                gpsLng = gpsLng,
+                source = source,
+                status = com.example.data.local.CustomerStatus.POTENTIAL,
+                loyaltyPoints = 0,
+                isSynced = false,
+                updatedAt = now
+            )
+        )
     }
 
     suspend fun saveProduct(product: ProductEntity): Long {
